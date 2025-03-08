@@ -20,12 +20,10 @@ func CreateServer(dataModel DataModel) *Server {
 	}
 }
 
-func (s *Server) GetPathTokens(r *http.Request) []string {
-	// Get the complete path (everything following /model)
-	fullPath := r.URL.Path
-
+func (s *Server) GetStrTokens(path string, ignorePrefix string) []string {
+	trimmedPath := strings.TrimLeft(path, ignorePrefix)
 	// Trim both leading and trailing slashes from the suffix
-	trimmedPath := strings.Trim(fullPath, "/")
+	trimmedPath = strings.Trim(trimmedPath, "/")
 
 	// Split the path suffix into tokens
 	pathTokens := []string{}
@@ -34,6 +32,12 @@ func (s *Server) GetPathTokens(r *http.Request) []string {
 	}
 
 	return pathTokens
+}
+
+func (s *Server) GetPathTokens(r *http.Request, ignorePrefix string) []string {
+	// Get the complete path (everything following /model)
+	fullPath := r.URL.Path
+	return s.GetStrTokens(fullPath, ignorePrefix)
 }
 
 // GetPostData extracts and validates JSON data from a POST request.
@@ -70,18 +74,7 @@ func (s *Server) GetPostData(w http.ResponseWriter, r *http.Request) (any, error
 	}
 }
 
-// HandlePost processes POST requests and updates the data model.
-// Returns an error if the operation fails.
-func (s *Server) HandlePost(w http.ResponseWriter, r *http.Request) error {
-	pathTokens := s.GetPathTokens(r)
-	jsonData, err := s.GetPostData(w, r)
-	if err != nil {
-		return err
-	}
-
-	// Log what we're trying to do
-	log.Printf("Handling POST to path: %v with data: %v", pathTokens, jsonData)
-
+func (s *Server) UpdateModelData(pathTokens []string, jsonData any) error {
 	// Start with the model map
 	subJson := s.dataModel.Model
 
@@ -131,13 +124,55 @@ func (s *Server) HandlePost(w http.ResponseWriter, r *http.Request) error {
 	// Set the final value
 	lastToken := pathTokens[len(pathTokens)-1]
 	current[lastToken] = jsonData
+	return nil
+}
+
+// HandlePost processes POST requests and updates the data model.
+// Returns an error if the operation fails.
+func (s *Server) HandleModelPost(w http.ResponseWriter, r *http.Request) error {
+	pathTokens := s.GetPathTokens(r, "/model")
+	jsonData, err := s.GetPostData(w, r)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Handling POST to path: %v with data: %v", pathTokens, jsonData)
+	err = s.UpdateModelData(pathTokens, jsonData)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Server) HandleNodePost(w http.ResponseWriter, r *http.Request) error {
+	pathTokens := s.GetPathTokens(r, "/node")
+	if len(pathTokens) != 1 {
+		return fmt.Errorf("expected only one item in the path, got %T", len(pathTokens))
+	}
+
+	normalizedPath := strings.Join(pathTokens, "/")
+	paths, exists := s.dataModel.Nodes[normalizedPath]
+	if !exists {
+		return fmt.Errorf("no match in the nodes list for the path \"%T\"", normalizedPath)
+	}
+
+	jsonData, err := s.GetPostData(w, r)
+	if err != nil {
+		return err
+	}
+
+	for _, value := range paths {
+		curTokens := s.GetStrTokens(value, "/")
+		s.UpdateModelData(curTokens, jsonData)
+	}
 
 	return nil
 }
 
 // HandleGet processes GET requests and returns the requested data.
-func (s *Server) HandleGet(w http.ResponseWriter, r *http.Request) error {
-	pathTokens := s.GetPathTokens(r)
+func (s *Server) HandleModelGet(w http.ResponseWriter, r *http.Request) error {
+	pathTokens := s.GetPathTokens(r, "/model")
 
 	// Start with the entire model
 	var result any = s.dataModel.Model
@@ -181,7 +216,7 @@ func (s *Server) ModelHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		err = s.HandleGet(w, r)
+		err = s.HandleModelGet(w, r)
 		if err != nil {
 			// Determine appropriate status code based on error
 			statusCode := http.StatusInternalServerError
@@ -195,7 +230,40 @@ func (s *Server) ModelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case http.MethodPost:
-		err = s.HandlePost(w, r)
+		err = s.HandleModelPost(w, r)
+		if err != nil {
+			// Determine appropriate status code based on error
+			statusCode := http.StatusBadRequest
+			if strings.Contains(err.Error(), "method") {
+				statusCode = http.StatusMethodNotAllowed
+			} else if strings.Contains(err.Error(), "Content-Type") {
+				statusCode = http.StatusUnsupportedMediaType
+			}
+			http.Error(w, err.Error(), statusCode)
+			return
+		}
+
+		// Send a success response for POST requests
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		responseData := map[string]string{"status": "success"}
+		json.NewEncoder(w).Encode(responseData)
+
+	default:
+		http.Error(w, fmt.Sprintf("Method %s not supported", r.Method), http.StatusMethodNotAllowed)
+	}
+}
+
+// ModelHandler handles requests to the node endpoint
+func (s *Server) NodeHandler(w http.ResponseWriter, r *http.Request) {
+	var err error
+
+	// Log the request
+	log.Printf("%s request to %s", r.Method, r.URL.Path)
+
+	switch r.Method {
+	case http.MethodPost:
+		err = s.HandleNodePost(w, r)
 		if err != nil {
 			// Determine appropriate status code based on error
 			statusCode := http.StatusBadRequest
@@ -230,7 +298,10 @@ func main() {
 	server := CreateServer(dataModel)
 
 	// Register the handler using a method closure
-	http.HandleFunc("/", server.ModelHandler)
+	http.HandleFunc("/model", server.ModelHandler)
+	http.HandleFunc("/model/", server.ModelHandler)
+	http.HandleFunc("/node", server.NodeHandler)
+	http.HandleFunc("/node/", server.NodeHandler)
 
 	// Start the server on port 8080
 	fmt.Println("Server starting on port 8080...")

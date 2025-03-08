@@ -104,9 +104,5 @@ func InitDataModel() (DataModel, error) {
 		return initDataModelFromUrl(url)
 	}
 
-	return DataModel{
-		Model:           make(map[string]any),
-		Transformations: make(map[string]string),
-		Nodes:           make(map[string][]string),
-	}, nil
+	return initDataModelFromFile("config.json")
 }

@@ -1,0 +1,22 @@
+{
+    "model": {
+        "hello": {
+            "goodbye": 2,
+            "world": {
+                "earth": 1,
+                "moon": 2,
+                "sun": 3
+            }
+        }
+    },
+    "transformations": {
+        "hello/world/earth": "self * 1000"
+    },
+    "nodes": {
+        "allplanets": [
+            "hello/world/earth",
+            "hello/world/moon",
+            "hello/world/sun"
+        ]
+    }
+}
