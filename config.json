@@ -53,22 +53,11 @@
         }
     },
     "nodes": {
-        "salesMetrics": [
+        "allSalesMetrics": [
             "sales/north",
             "sales/south",
             "sales/east",
-            "sales/west",
-            "sales/total"
-        ],
-        "costMetrics": [
-            "costs/fixed",
-            "costs/variable",
-            "costs/marketing",
-            "costs/total"
-        ],
-        "performanceMetrics": [
-            "profit",
-            "profitPerEmployee"
+            "sales/west"
         ]
     }
 }
