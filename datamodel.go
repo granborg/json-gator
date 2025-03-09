@@ -14,7 +14,7 @@ import (
 
 type DataModel struct {
 	Model           map[string]any      `json:"model"`           // Contains the current values for all topics
-	Transformations map[string]string   `json:"transformations"` // key: topic, value: transformation
+	Transformations map[string]any      `json:"transformations"` // key: topic, value: transformation
 	Nodes           map[string][]string `json:"nodes"`           // key: datum ID, value: all associated topics
 }
 
@@ -45,15 +45,38 @@ func (d *DataModel) GetModelData(pathTokens []string) (any, error) {
 
 func (d *DataModel) ApplyTransformation(pathTokens []string, data any) (any, error) {
 	path := strings.Join(pathTokens, "/")
-	transformation, exists := d.Transformations[path]
+	transformationAny, exists := d.Transformations[path]
 	if !exists {
-		// This is ok.
 		return data, fmt.Errorf("did not find a transformation with the path \"%s\"", path)
+	}
+
+	// Cast the transformation to the new format
+	transformation, ok := transformationAny.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid transformation format for path '%s': must be an object", path)
+	}
+
+	// Extract implementation
+	implementation, ok := transformation["implementation"].(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid transformation format: missing or invalid 'implementation' field")
+	}
+
+	// Extract parameters
+	parameters := make(map[string]string)
+	if params, ok := transformation["parameters"].(map[string]any); ok {
+		for k, v := range params {
+			if strVal, ok := v.(string); ok {
+				parameters[k] = strVal
+			} else {
+				return nil, fmt.Errorf("parameter '%s' must be a string", k)
+			}
+		}
 	}
 
 	// Create the V8 environment
 	iso := v8.NewIsolate()
-	defer iso.Dispose() // Don't forget to dispose the isolate
+	defer iso.Dispose()
 
 	// Create the global object template
 	global := v8.NewObjectTemplate(iso)
@@ -68,14 +91,41 @@ func (d *DataModel) ApplyTransformation(pathTokens []string, data any) (any, err
 		return nil, fmt.Errorf("failed to convert data to JavaScript object: %s", err.Error())
 	}
 
-	// Set the "self" variable in the global context BEFORE running any script
+	// Set the "self" variable in the global context
 	err = ctx.Global().Set("self", jsInput)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set 'self' in global context: %s", err.Error())
 	}
 
-	// Now run the transformation script
-	jsResult, err := ctx.RunScript(transformation, "transformation.js")
+	// Set any parameters in the global context
+	for paramName, paramPath := range parameters {
+		// Split the path into tokens
+		paramPathTokens := strings.Split(paramPath, "/")
+
+		// Recursively resolve the parameter value
+		paramValue, err := d.GetModelData(paramPathTokens)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve parameter '%s' at path '%s': %s",
+				paramName, paramPath, err.Error())
+		}
+
+		// Convert parameter value to JavaScript
+		jsParamValue, err := convertGoToJavaScript(ctx, paramValue)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert parameter '%s' to JavaScript: %s",
+				paramName, err.Error())
+		}
+
+		// Set the parameter in the global context
+		err = ctx.Global().Set(paramName, jsParamValue)
+		if err != nil {
+			return nil, fmt.Errorf("failed to set parameter '%s' in global context: %s",
+				paramName, err.Error())
+		}
+	}
+
+	// Run the transformation script
+	jsResult, err := ctx.RunScript(implementation, "transformation.js")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute JavaScript: %s", err.Error())
 	}
@@ -153,7 +203,7 @@ func initDataModelFromFile(path string) (DataModel, error) {
 		// Initialize with empty maps when no source is provided
 		return DataModel{
 			Model:           make(map[string]any),
-			Transformations: make(map[string]string),
+			Transformations: make(map[string]any),
 			Nodes:           make(map[string][]string),
 		}, err
 	}
@@ -165,7 +215,7 @@ func initDataModelFromFile(path string) (DataModel, error) {
 		// Initialize with empty maps when no source is provided
 		return DataModel{
 			Model:           make(map[string]any),
-			Transformations: make(map[string]string),
+			Transformations: make(map[string]any),
 			Nodes:           make(map[string][]string),
 		}, err
 	}
@@ -180,7 +230,7 @@ func initDataModelFromUrl(url string) (DataModel, error) {
 		// Initialize with empty maps when no source is provided
 		return DataModel{
 			Model:           make(map[string]any),
-			Transformations: make(map[string]string),
+			Transformations: make(map[string]any),
 			Nodes:           make(map[string][]string),
 		}, err
 	}
@@ -192,7 +242,7 @@ func initDataModelFromUrl(url string) (DataModel, error) {
 		// Initialize with empty maps when no source is provided
 		return DataModel{
 			Model:           make(map[string]any),
-			Transformations: make(map[string]string),
+			Transformations: make(map[string]any),
 			Nodes:           make(map[string][]string),
 		}, err
 	}
@@ -203,7 +253,7 @@ func initDataModelFromUrl(url string) (DataModel, error) {
 		// Initialize with empty maps when no source is provided
 		return DataModel{
 			Model:           make(map[string]any),
-			Transformations: make(map[string]string),
+			Transformations: make(map[string]any),
 			Nodes:           make(map[string][]string),
 		}, err
 	}
@@ -215,7 +265,7 @@ func initDataModelFromUrl(url string) (DataModel, error) {
 		// Initialize with empty maps when no source is provided
 		return DataModel{
 			Model:           make(map[string]any),
-			Transformations: make(map[string]string),
+			Transformations: make(map[string]any),
 			Nodes:           make(map[string][]string),
 		}, err
 	}

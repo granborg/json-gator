@@ -10,7 +10,12 @@
         }
     },
     "transformations": {
-        "hello/world/earth": "self * 1000"
+        "hello/world/earth": {
+            "implementation": "(self * 1000) + moon",
+            "parameters": {
+                "moon": "hello/world/moon"
+            }
+        }
     },
     "nodes": {
         "allplanets": [
