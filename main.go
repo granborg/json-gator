@@ -74,59 +74,6 @@ func (s *Server) GetPostData(w http.ResponseWriter, r *http.Request) (any, error
 	}
 }
 
-func (s *Server) UpdateModelData(pathTokens []string, jsonData any) error {
-	// Start with the model map
-	subJson := s.dataModel.Model
-
-	// If there are no path tokens, replace the entire model
-	if len(pathTokens) == 0 {
-		// Check if jsonData is a map before assigning
-		modelMap, ok := jsonData.(map[string]any)
-		if !ok {
-			return fmt.Errorf("expected JSON object for root model update, got %T", jsonData)
-		}
-
-		s.dataModel.Model = modelMap
-		return nil
-	}
-
-	// Special case: if we only have one path token
-	if len(pathTokens) == 1 {
-		subJson[pathTokens[0]] = jsonData
-		return nil
-	}
-
-	// For deeper paths, we need to ensure the entire path exists
-	// Create each level as needed
-	current := subJson
-	for i := 0; i < len(pathTokens)-1; i++ {
-		token := pathTokens[i]
-
-		// Check if this path component exists
-		next, exists := current[token]
-		if !exists {
-			// Path doesn't exist, create a new map
-			current[token] = make(map[string]any)
-			current = current[token].(map[string]any)
-		} else {
-			// Path exists, check if it's a map
-			nextMap, ok := next.(map[string]any)
-			if !ok {
-				// It's not a map, replace it with one
-				current[token] = make(map[string]any)
-				current = current[token].(map[string]any)
-			} else {
-				current = nextMap
-			}
-		}
-	}
-
-	// Set the final value
-	lastToken := pathTokens[len(pathTokens)-1]
-	current[lastToken] = jsonData
-	return nil
-}
-
 // HandlePost processes POST requests and updates the data model.
 // Returns an error if the operation fails.
 func (s *Server) HandleModelPost(w http.ResponseWriter, r *http.Request) error {
@@ -137,7 +84,7 @@ func (s *Server) HandleModelPost(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	log.Printf("Handling POST to path: %v with data: %v", pathTokens, jsonData)
-	err = s.UpdateModelData(pathTokens, jsonData)
+	err = s.dataModel.UpdateModelData(pathTokens, jsonData)
 	if err != nil {
 		return err
 	}
@@ -154,7 +101,7 @@ func (s *Server) HandleNodePost(w http.ResponseWriter, r *http.Request) error {
 	normalizedPath := strings.Join(pathTokens, "/")
 	paths, exists := s.dataModel.Nodes[normalizedPath]
 	if !exists {
-		return fmt.Errorf("no match in the nodes list for the path \"%T\"", normalizedPath)
+		return fmt.Errorf("no match in the nodes list for the path \"%s\"", normalizedPath)
 	}
 
 	jsonData, err := s.GetPostData(w, r)
@@ -164,7 +111,7 @@ func (s *Server) HandleNodePost(w http.ResponseWriter, r *http.Request) error {
 
 	for _, value := range paths {
 		curTokens := s.GetStrTokens(value, "/")
-		s.UpdateModelData(curTokens, jsonData)
+		s.dataModel.UpdateModelData(curTokens, jsonData)
 	}
 
 	return nil
@@ -173,29 +120,11 @@ func (s *Server) HandleNodePost(w http.ResponseWriter, r *http.Request) error {
 // HandleGet processes GET requests and returns the requested data.
 func (s *Server) HandleModelGet(w http.ResponseWriter, r *http.Request) error {
 	pathTokens := s.GetPathTokens(r, "/model")
-
-	// Start with the entire model
-	var result any = s.dataModel.Model
-
-	// Navigate through the path to find the requested sub-object
-	for _, token := range pathTokens {
-		// Check if we're still dealing with a map
-		currentMap, ok := result.(map[string]any)
-		if !ok {
-			return fmt.Errorf("path element '%s' does not point to an object", token)
-		}
-
-		// Try to get the next element
-		nextElement, exists := currentMap[token]
-		if !exists {
-			return fmt.Errorf("path element '%s' not found", token)
-		}
-
-		// Update result to the next element
-		result = nextElement
+	result, err := s.dataModel.GetModelData(pathTokens)
+	if err != nil {
+		return fmt.Errorf("error getting data: %w", err)
 	}
 
-	// Convert result to JSON
 	jsonResponse, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("error marshaling response: %w", err)
