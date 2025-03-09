@@ -170,8 +170,9 @@ URL ```localhost:8080/node/allSales```
 
 BODY ```10``` (just the number 10 yes)
 
-### HTTP GET ```localhost:8080/model/sales```
-
+#### HTTP GET 
+URL ```localhost:8080/model/sales```
+RESPONSE
 ```json
 {
     "east": 10,
