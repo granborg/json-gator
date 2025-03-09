@@ -56,7 +56,7 @@ func (d *DataModel) applyTransformation(path string) (any, error) {
 	transformationAny, exists := d.Transformations[path]
 	if !exists {
 		// If no transformation exists, just return the raw value from the model
-		value, err := d.getRawModelData(pathTokens)
+		value, err := GetMapData(&d.Model, pathTokens)
 		if err != nil {
 			return nil, err
 		}
@@ -99,7 +99,7 @@ func (d *DataModel) applyTransformation(path string) (any, error) {
 	defer ctx.Close()
 
 	// Get the current raw value from the model as "self"
-	selfValue, err := d.getRawModelData(pathTokens)
+	selfValue, err := GetMapData(&d.Model, pathTokens)
 	if err != nil && !strings.Contains(err.Error(), "not found") {
 		// Only return an error if it's not a "not found" error
 		return nil, fmt.Errorf("failed to get raw model data for 'self': %s", err.Error())
@@ -158,32 +158,6 @@ func (d *DataModel) applyTransformation(path string) (any, error) {
 	return result, nil
 }
 
-// getRawModelData gets data directly from the model without applying transformations
-func (d *DataModel) getRawModelData(pathTokens []string) (any, error) {
-	// Start with the entire model
-	var result any = d.Model
-
-	// Navigate through the path to find the requested sub-object
-	for _, token := range pathTokens {
-		// Check if we're still dealing with a map
-		currentMap, ok := result.(map[string]any)
-		if !ok {
-			return currentMap, nil
-		}
-
-		// Try to get the next element
-		nextElement, exists := currentMap[token]
-		if !exists {
-			return nil, fmt.Errorf("path element '%s' not found", token)
-		}
-
-		// Update result to the next element
-		result = nextElement
-	}
-
-	return result, nil
-}
-
 // applyNestedTransformations applies transformations to all children of a path
 func (d *DataModel) applyNestedTransformations(path string, rawData any) (any, error) {
 	// If the data is not a map, no transformations to apply
@@ -219,7 +193,7 @@ func (d *DataModel) applyNestedTransformations(path string, rawData any) (any, e
 
 // GetModelData gets data from the model, applying transformations as needed
 func (d *DataModel) GetModelData(pathTokens []string, raw bool) (any, error) {
-	rawData, err := d.getRawModelData(pathTokens)
+	rawData, err := GetMapData(&d.Model, pathTokens)
 	if raw && err != nil {
 		// Ok if not raw since it might be a synthetic data point
 		return nil, err

@@ -45,6 +45,32 @@ func DeepCopyMap(original map[string]any) map[string]any {
 	return copy
 }
 
+// GetMapData gets data directly from the model without applying transformations
+func GetMapData(modelMap *map[string]any, pathTokens []string) (any, error) {
+	// Start with the entire model
+	var result any = *modelMap
+
+	// Navigate through the path to find the requested sub-object
+	for _, token := range pathTokens {
+		// Check if we're still dealing with a map
+		currentMap, ok := result.(map[string]any)
+		if !ok {
+			return currentMap, nil
+		}
+
+		// Try to get the next element
+		nextElement, exists := currentMap[token]
+		if !exists {
+			return nil, fmt.Errorf("path element '%s' not found", token)
+		}
+
+		// Update result to the next element
+		result = nextElement
+	}
+
+	return result, nil
+}
+
 // SetMapData indexes into a map based on the pathTokens and changes the value.
 func SetMapData(modelMap *map[string]any, pathTokens []string, value any) error {
 	// If there are no path tokens, replace the entire model
