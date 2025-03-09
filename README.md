@@ -41,7 +41,7 @@ RESPONSE
                 "current_f": 69,
                 "ac_mode": "heat",
                 "fan_mode": "on"
-}
+            }
         }
     }
 }
