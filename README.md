@@ -41,7 +41,7 @@ RESPONSE
                 "current_f": 69,
                 "ac_mode": "heat",
                 "fan_mode": "on"
-}
+            }
         }
     }
 }
@@ -106,7 +106,7 @@ The model section in the config file determines how the models are initially con
 
 ## Transformations: Performing data manipulation using JavaScript
 
-Models can be extended with transformations, allowing data type conversions and other calculations, or a customized presentation within the model.
+The transformations section within the config file allows fields in the model to be extended with data transformations, allowing data type conversions and other calculations, or a customized presentation within the model.
 
 The "implementation" field defines the JavaScript code. The output of this code is pushed into the JSON model based on the /-separated field name. The result will be converted into JSON, if possible. Otherwise, the string representation is used.
 
@@ -135,7 +135,7 @@ You can also create values which are compositions of other values within the obj
 
 ```json
  "employees": {
-    "avgSalary": "$$65000.00.00",
+    "avgSalary": "$65000.00",
     "count": 42
 },
 "sales": {
@@ -170,8 +170,9 @@ URL ```localhost:8080/node/allSales```
 
 BODY ```10``` (just the number 10 yes)
 
-### HTTP GET ```localhost:8080/model/sales```
-
+#### HTTP GET 
+URL ```localhost:8080/model/sales```
+RESPONSE
 ```json
 {
     "east": 10,
