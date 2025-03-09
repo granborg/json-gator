@@ -86,7 +86,7 @@ func (s *Server) ModelHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		result, err := s.dataModel.GetModelData(pathTokens)
+		result, err := s.dataModel.GetModelData(pathTokens, false)
 		if err != nil {
 			sendErrorResponse(w, fmt.Errorf("error getting data: %w", err))
 			return
@@ -103,7 +103,7 @@ func (s *Server) ModelHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := s.dataModel.UpdateModelData(pathTokens, jsonData); err != nil {
+		if err := s.dataModel.SetModelData(pathTokens, jsonData); err != nil {
 			sendErrorResponse(w, err)
 			return
 		}
@@ -146,7 +146,7 @@ func (s *Server) NodeHandler(w http.ResponseWriter, r *http.Request) {
 	// Update all paths associated with this node
 	for _, path := range paths {
 		curTokens := GetStrTokens(path, "/", "/")
-		if err := s.dataModel.UpdateModelData(curTokens, jsonData); err != nil {
+		if err := s.dataModel.SetModelData(curTokens, jsonData); err != nil {
 			sendErrorResponse(w, err)
 			return
 		}

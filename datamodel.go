@@ -12,16 +12,58 @@ type DataModel struct {
 	Model           map[string]any      `json:"model"`           // Contains the current values for all topics
 	Transformations map[string]any      `json:"transformations"` // key: topic, value: transformation
 	Nodes           map[string][]string `json:"nodes"`           // key: datum ID, value: all associated topics
+
+	// Cache to prevent infinite recursion and improve performance
+	transformationCache map[string]any
+	processingPaths     map[string]bool
 }
 
-func (d *DataModel) applyTransformation(pathTokens []string, data any) (any, error) {
-	path := strings.Join(pathTokens, "/")
-	transformationAny, exists := d.Transformations[path]
-	if !exists {
-		return data, fmt.Errorf("did not find a transformation with the path \"%s\"", path)
+// NewDataModel creates a new DataModel with initialized fields
+func NewDataModel() *DataModel {
+	return &DataModel{
+		Model:               make(map[string]any),
+		Transformations:     make(map[string]any),
+		Nodes:               make(map[string][]string),
+		transformationCache: make(map[string]any),
+		processingPaths:     make(map[string]bool),
+	}
+}
+
+// ClearCache clears the transformation cache, forcing recalculation of all transformations
+func (d *DataModel) ClearCache() {
+	d.transformationCache = make(map[string]any)
+}
+
+// applyTransformation applies a transformation to the given path and returns the result
+func (d *DataModel) applyTransformation(path string) (any, error) {
+	// Check if already in cache
+	if cachedValue, ok := d.transformationCache[path]; ok {
+		return cachedValue, nil
 	}
 
-	// Cast the transformation to the new format
+	// Check if we're already processing this path (to prevent infinite recursion)
+	if d.processingPaths[path] {
+		return nil, fmt.Errorf("potential circular dependency detected while processing '%s'", path)
+	}
+
+	// Mark this path as being processed
+	d.processingPaths[path] = true
+	defer func() { delete(d.processingPaths, path) }()
+
+	// Split path into tokens
+	pathTokens := strings.Split(path, "/")
+
+	transformationAny, exists := d.Transformations[path]
+	if !exists {
+		// If no transformation exists, just return the raw value from the model
+		value, err := d.getRawModelData(pathTokens)
+		if err != nil {
+			return nil, err
+		}
+		return value, nil
+	}
+
+	// Cast the transformation to the expected format
 	transformation, ok := transformationAny.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("invalid transformation format for path '%s': must be an object", path)
@@ -56,8 +98,15 @@ func (d *DataModel) applyTransformation(pathTokens []string, data any) (any, err
 	ctx := v8.NewContext(iso, global)
 	defer ctx.Close()
 
+	// Get the current raw value from the model as "self"
+	selfValue, err := d.getRawModelData(pathTokens)
+	if err != nil && !strings.Contains(err.Error(), "not found") {
+		// Only return an error if it's not a "not found" error
+		return nil, fmt.Errorf("failed to get raw model data for 'self': %s", err.Error())
+	}
+
 	// Convert Go data to JavaScript object
-	jsInput, err := ConvertGoToJavaScript(ctx, data)
+	jsInput, err := ConvertGoToJavaScript(ctx, selfValue)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert data to JavaScript object: %s", err.Error())
 	}
@@ -70,11 +119,8 @@ func (d *DataModel) applyTransformation(pathTokens []string, data any) (any, err
 
 	// Set any parameters in the global context
 	for paramName, paramPath := range parameters {
-		// Split the path into tokens
-		paramPathTokens := strings.Split(paramPath, "/")
-
-		// Recursively resolve the parameter value
-		paramValue, err := d.GetModelData(paramPathTokens)
+		// Get the parameter value (which might involve recursively applying transformations)
+		paramValue, err := d.GetModelData(strings.Split(paramPath, "/"), false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve parameter '%s' at path '%s': %s",
 				paramName, paramPath, err.Error())
@@ -103,12 +149,17 @@ func (d *DataModel) applyTransformation(pathTokens []string, data any) (any, err
 
 	result, err := ConvertJavaScriptToGo(ctx, jsResult)
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert JavaScript result \"%s\" to Go object: %s", jsResult, err.Error())
+		return nil, fmt.Errorf("failed to convert JavaScript result to Go object: %s", err.Error())
 	}
+
+	// Cache the result
+	d.transformationCache[path] = result
+
 	return result, nil
 }
 
-func (d *DataModel) GetModelData(pathTokens []string) (any, error) {
+// getRawModelData gets data directly from the model without applying transformations
+func (d *DataModel) getRawModelData(pathTokens []string) (any, error) {
 	// Start with the entire model
 	var result any = d.Model
 
@@ -117,7 +168,7 @@ func (d *DataModel) GetModelData(pathTokens []string) (any, error) {
 		// Check if we're still dealing with a map
 		currentMap, ok := result.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("path element '%s' does not point to an object", token)
+			return currentMap, nil
 		}
 
 		// Try to get the next element
@@ -133,61 +184,63 @@ func (d *DataModel) GetModelData(pathTokens []string) (any, error) {
 	return result, nil
 }
 
-func (d *DataModel) UpdateModelData(pathTokens []string, jsonData any) error {
-	// Start with the model map
-	subJson := d.Model
-
-	// If there are no path tokens, replace the entire model
-	if len(pathTokens) == 0 {
-		// Check if jsonData is a map before assigning
-		modelMap, ok := jsonData.(map[string]any)
-		if !ok {
-			return fmt.Errorf("expected JSON object for root model update, got %T", jsonData)
-		}
-
-		d.Model = modelMap
-		return nil
+// applyNestedTransformations applies transformations to all children of a path
+func (d *DataModel) applyNestedTransformations(path string, rawData any) (any, error) {
+	// If the data is not a map, no transformations to apply
+	resultMap, isMap := rawData.(map[string]any)
+	if !isMap {
+		return d.applyTransformation(path)
 	}
 
-	// Special case: if we only have one path token
-	if len(pathTokens) == 1 {
-		subJson[pathTokens[0]] = jsonData
-		return nil
+	// Create a copy of the map to avoid modifying the original
+	resultCopy := make(map[string]any)
+	for k, v := range resultMap {
+		resultCopy[k] = v
 	}
 
-	// For deeper paths, we need to ensure the entire path exists
-	// Create each level as needed
-	current := subJson
-	for i := 0; i < len(pathTokens)-1; i++ {
-		token := pathTokens[i]
-
-		// Check if this path component exists
-		next, exists := current[token]
-		if !exists {
-			// Path doesn't exist, create a new map
-			current[token] = make(map[string]any)
-			current = current[token].(map[string]any)
-		} else {
-			// Path exists, check if it's a map
-			nextMap, ok := next.(map[string]any)
-			if !ok {
-				// It's not a map, replace it with one
-				current[token] = make(map[string]any)
-				current = current[token].(map[string]any)
-			} else {
-				current = nextMap
+	// Look for transformations that should be applied to children
+	for transformPath := range d.Transformations {
+		if strings.HasPrefix(transformPath, path) {
+			transformedValue, err := d.applyTransformation(transformPath)
+			if err != nil {
+				log.Printf("INFO: Failed to apply transformation for '%s': %s", transformPath, err.Error())
 			}
+
+			// Update the result with the transformed value
+			subPath := strings.TrimLeft(transformPath, path)
+			subPath = strings.Trim(subPath, "/")
+			subPathTokens := strings.Split(subPath, "/")
+			SetMapData(&resultCopy, subPathTokens, transformedValue)
 		}
 	}
 
-	// Set the final value
-	lastToken := pathTokens[len(pathTokens)-1]
+	return resultCopy, nil
+}
 
-	result, err := d.applyTransformation(pathTokens, jsonData)
-	if err != nil {
-		log.Printf("Transformation failed with error: %s", err.Error())
+// GetModelData gets data from the model, applying transformations as needed
+func (d *DataModel) GetModelData(pathTokens []string, raw bool) (any, error) {
+	rawData, err := d.getRawModelData(pathTokens)
+	if raw && err != nil {
+		// Ok if not raw since it might be a synthetic data point
+		return nil, err
 	}
 
-	current[lastToken] = result
-	return nil
+	if raw {
+		return rawData, nil
+	}
+
+	path := strings.Join(pathTokens, "/")
+	transformedData, err := d.applyNestedTransformations(path, rawData)
+	if err != nil {
+		return nil, err
+	}
+
+	return transformedData, nil
+}
+
+// SetModelData sets data in the model without applying transformations
+func (d *DataModel) SetModelData(pathTokens []string, value any) error {
+	// Clear the transformation cache since model data is changing
+	d.ClearCache()
+	return SetMapData(&d.Model, pathTokens, value)
 }

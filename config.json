@@ -1,1 +1,74 @@
-{"model":{"hello":{"goodbye":2,"world":{"earth":122,"moon":2,"sun":3}}},"transformations":{"hello/world/earth":{"implementation":"(self * 1000) + world.moon + world.sun","parameters":{"world":"hello/world"}}},"nodes":{"allplanets":["hello/world/moon","hello/world/sun","hello/world/earth"]}}
+{
+    "model": {
+        "sales": {
+            "north": 120000,
+            "south": 85000,
+            "east": 95000,
+            "west": 110000
+        },
+        "costs": {
+            "fixed": 75000,
+            "variable": 180000,
+            "marketing": 45000
+        },
+        "employees": {
+            "count": 42,
+            "avgSalary": 65000
+        }
+    },
+    "transformations": {
+        "employees/avgSalary": {
+            "implementation": "`$${self}.00`"
+        },
+        "sales/total": {
+            "implementation": "north + south + east + west",
+            "parameters": {
+                "north": "sales/north",
+                "south": "sales/south",
+                "east": "sales/east",
+                "west": "sales/west"
+            }
+        },
+        "costs/total": {
+            "implementation": "fixed + variable + marketing",
+            "parameters": {
+                "fixed": "costs/fixed",
+                "variable": "costs/variable",
+                "marketing": "costs/marketing"
+            }
+        },
+        "profit": {
+            "implementation": "salesTotal - costsTotal",
+            "parameters": {
+                "salesTotal": "sales/total",
+                "costsTotal": "costs/total"
+            }
+        },
+        "profitPerEmployee": {
+            "implementation": "profit / count",
+            "parameters": {
+                "profit": "profit",
+                "count": "employees/count"
+            }
+        }
+    },
+    "nodes": {
+        "salesMetrics": [
+            "sales/north",
+            "sales/south",
+            "sales/east",
+            "sales/west",
+            "sales/total"
+        ],
+        "costMetrics": [
+            "costs/fixed",
+            "costs/variable",
+            "costs/marketing",
+            "costs/total"
+        ],
+        "performanceMetrics": [
+            "profit",
+            "profitPerEmployee"
+        ]
+    }
+}

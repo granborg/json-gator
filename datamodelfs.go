@@ -11,26 +11,20 @@ func initDataModelFromFile(path string) (DataModel, error) {
 	if err != nil {
 		fmt.Println("Error reading config file:", err)
 		// Initialize with empty maps when no source is provided
-		return DataModel{
-			Model:           make(map[string]any),
-			Transformations: make(map[string]any),
-			Nodes:           make(map[string][]string),
-		}, err
+		dataModel := NewDataModel()
+		return *dataModel, err
 	}
 
-	var dataModel DataModel
+	dataModel := NewDataModel()
+
 	err = json.Unmarshal(content, &dataModel)
 	if err != nil {
 		fmt.Println("Error unmarshaling JSON:", err)
 		// Initialize with empty maps when no source is provided
-		return DataModel{
-			Model:           make(map[string]any),
-			Transformations: make(map[string]any),
-			Nodes:           make(map[string][]string),
-		}, err
+		return *dataModel, err
 	}
 
-	return dataModel, nil
+	return *dataModel, nil
 }
 
 // LoadDataModel initializes a data model from the file path CONFIG_FILE_PATH, or config.json if empty.

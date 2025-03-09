@@ -28,7 +28,8 @@ func ConvertJavaScriptToGo(ctx *v8.Context, jsValue *v8.Value) (any, error) {
 	jsonStringScript := fmt.Sprintf("JSON.stringify(%s)", jsValue.String())
 	jsonValue, err := ctx.RunScript(jsonStringScript, "stringify.js")
 	if err != nil {
-		return nil, fmt.Errorf("failed to stringify JavaScript value: %w", err)
+		// Failed to convert: must be not be an object
+		return jsValue.String(), nil
 	}
 
 	// Step 2: Unmarshal the JSON string into the target Go object
