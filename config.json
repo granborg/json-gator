@@ -11,9 +11,9 @@
     },
     "transformations": {
         "hello/world/earth": {
-            "implementation": "(self * 1000) + moon",
+            "implementation": "(self * 1000) + world.moon",
             "parameters": {
-                "moon": "hello/world/moon"
+                "world": "hello/world"
             }
         }
     },
