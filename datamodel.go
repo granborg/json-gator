@@ -1,12 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"os"
 	"strings"
 
 	v8 "rogchap.com/v8go"
@@ -18,32 +14,7 @@ type DataModel struct {
 	Nodes           map[string][]string `json:"nodes"`           // key: datum ID, value: all associated topics
 }
 
-func (d *DataModel) GetModelData(pathTokens []string) (any, error) {
-	// Start with the entire model
-	var result any = d.Model
-
-	// Navigate through the path to find the requested sub-object
-	for _, token := range pathTokens {
-		// Check if we're still dealing with a map
-		currentMap, ok := result.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("path element '%s' does not point to an object", token)
-		}
-
-		// Try to get the next element
-		nextElement, exists := currentMap[token]
-		if !exists {
-			return nil, fmt.Errorf("path element '%s' not found", token)
-		}
-
-		// Update result to the next element
-		result = nextElement
-	}
-
-	return result, nil
-}
-
-func (d *DataModel) ApplyTransformation(pathTokens []string, data any) (any, error) {
+func (d *DataModel) applyTransformation(pathTokens []string, data any) (any, error) {
 	path := strings.Join(pathTokens, "/")
 	transformationAny, exists := d.Transformations[path]
 	if !exists {
@@ -86,7 +57,7 @@ func (d *DataModel) ApplyTransformation(pathTokens []string, data any) (any, err
 	defer ctx.Close()
 
 	// Convert Go data to JavaScript object
-	jsInput, err := convertGoToJavaScript(ctx, data)
+	jsInput, err := ConvertGoToJavaScript(ctx, data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert data to JavaScript object: %s", err.Error())
 	}
@@ -110,7 +81,7 @@ func (d *DataModel) ApplyTransformation(pathTokens []string, data any) (any, err
 		}
 
 		// Convert parameter value to JavaScript
-		jsParamValue, err := convertGoToJavaScript(ctx, paramValue)
+		jsParamValue, err := ConvertGoToJavaScript(ctx, paramValue)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert parameter '%s' to JavaScript: %s",
 				paramName, err.Error())
@@ -130,10 +101,35 @@ func (d *DataModel) ApplyTransformation(pathTokens []string, data any) (any, err
 		return nil, fmt.Errorf("failed to execute JavaScript: %s", err.Error())
 	}
 
-	result, err := convertJavaScriptToGo(ctx, jsResult)
+	result, err := ConvertJavaScriptToGo(ctx, jsResult)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert JavaScript result \"%s\" to Go object: %s", jsResult, err.Error())
 	}
+	return result, nil
+}
+
+func (d *DataModel) GetModelData(pathTokens []string) (any, error) {
+	// Start with the entire model
+	var result any = d.Model
+
+	// Navigate through the path to find the requested sub-object
+	for _, token := range pathTokens {
+		// Check if we're still dealing with a map
+		currentMap, ok := result.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("path element '%s' does not point to an object", token)
+		}
+
+		// Try to get the next element
+		nextElement, exists := currentMap[token]
+		if !exists {
+			return nil, fmt.Errorf("path element '%s' not found", token)
+		}
+
+		// Update result to the next element
+		result = nextElement
+	}
+
 	return result, nil
 }
 
@@ -187,138 +183,11 @@ func (d *DataModel) UpdateModelData(pathTokens []string, jsonData any) error {
 	// Set the final value
 	lastToken := pathTokens[len(pathTokens)-1]
 
-	result, err := d.ApplyTransformation(pathTokens, jsonData)
+	result, err := d.applyTransformation(pathTokens, jsonData)
 	if err != nil {
 		log.Printf("Transformation failed with error: %s", err.Error())
 	}
 
 	current[lastToken] = result
 	return nil
-}
-
-func initDataModelFromFile(path string) (DataModel, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		fmt.Println("Error reading config file:", err)
-		// Initialize with empty maps when no source is provided
-		return DataModel{
-			Model:           make(map[string]any),
-			Transformations: make(map[string]any),
-			Nodes:           make(map[string][]string),
-		}, err
-	}
-
-	var dataModel DataModel
-	err = json.Unmarshal(content, &dataModel)
-	if err != nil {
-		fmt.Println("Error unmarshaling JSON:", err)
-		// Initialize with empty maps when no source is provided
-		return DataModel{
-			Model:           make(map[string]any),
-			Transformations: make(map[string]any),
-			Nodes:           make(map[string][]string),
-		}, err
-	}
-
-	return dataModel, nil
-}
-
-func initDataModelFromUrl(url string) (DataModel, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		fmt.Println("Error fetching config from URL:", err)
-		// Initialize with empty maps when no source is provided
-		return DataModel{
-			Model:           make(map[string]any),
-			Transformations: make(map[string]any),
-			Nodes:           make(map[string][]string),
-		}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("received non-200 status code: %d", resp.StatusCode)
-		fmt.Println("Error fetching config from URL:", err)
-		// Initialize with empty maps when no source is provided
-		return DataModel{
-			Model:           make(map[string]any),
-			Transformations: make(map[string]any),
-			Nodes:           make(map[string][]string),
-		}, err
-	}
-
-	content, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println("Error reading response body:", err)
-		// Initialize with empty maps when no source is provided
-		return DataModel{
-			Model:           make(map[string]any),
-			Transformations: make(map[string]any),
-			Nodes:           make(map[string][]string),
-		}, err
-	}
-
-	var dataModel DataModel
-	err = json.Unmarshal(content, &dataModel)
-	if err != nil {
-		fmt.Println("Error unmarshaling JSON:", err)
-		// Initialize with empty maps when no source is provided
-		return DataModel{
-			Model:           make(map[string]any),
-			Transformations: make(map[string]any),
-			Nodes:           make(map[string][]string),
-		}, err
-	}
-
-	return dataModel, nil
-}
-
-func convertGoToJavaScript(ctx *v8.Context, goObj any) (*v8.Value, error) {
-	// Step 1: Serialize the Go object to JSON
-	jsonData, err := json.Marshal(goObj)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal Go object: %w", err)
-	}
-
-	// Step 2: Create a JavaScript object by parsing the JSON
-	jsValue, err := ctx.RunScript(fmt.Sprintf("JSON.parse(%q)", string(jsonData)), "conversion.js")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create JS object: %w", err)
-	}
-
-	return jsValue, nil
-}
-
-func convertJavaScriptToGo(ctx *v8.Context, jsValue *v8.Value) (any, error) {
-	// Step 1: Convert the JavaScript value to a JSON string
-	jsonStringScript := fmt.Sprintf("JSON.stringify(%s)", jsValue.String())
-	jsonValue, err := ctx.RunScript(jsonStringScript, "stringify.js")
-	if err != nil {
-		return nil, fmt.Errorf("failed to stringify JavaScript value: %w", err)
-	}
-
-	// Step 2: Unmarshal the JSON string into the target Go object
-	var target any
-	err = json.Unmarshal([]byte(jsonValue.String()), &target)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JavaScript value: %w", err)
-	}
-
-	return target, nil
-}
-
-// InitDataModel initializes a data model from a file, URL, or other source depending on ENV file configuration.
-// It checks env variables in this order: CONFIG_FILE_PATH, CONFIG_FILE_URL.
-func InitDataModel() (DataModel, error) {
-	path := os.Getenv("CONFIG_FILE_PATH")
-	if path != "" {
-		return initDataModelFromFile(path)
-	}
-
-	url := os.Getenv("CONFIG_FILE_URL")
-	if url != "" {
-		return initDataModelFromUrl(url)
-	}
-
-	return initDataModelFromFile("config.json")
 }

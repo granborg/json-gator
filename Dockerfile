@@ -26,6 +26,9 @@ COPY --from=builder /app/server .
 # Expose port 8080
 EXPOSE 8080
 
+# Copy the built-in configurations
+COPY *.json ./
+
 # Set environment variables (can be overridden at runtime)
 ENV CONFIG_FILE_PATH=""
 ENV CONFIG_FILE_URL=""

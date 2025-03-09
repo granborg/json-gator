@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -20,35 +21,13 @@ func CreateServer(dataModel DataModel) *Server {
 	}
 }
 
-func (s *Server) GetStrTokens(path string, ignorePrefix string) []string {
-	trimmedPath := strings.TrimLeft(path, ignorePrefix)
-	// Trim both leading and trailing slashes from the suffix
-	trimmedPath = strings.Trim(trimmedPath, "/")
-
-	// Split the path suffix into tokens
-	pathTokens := []string{}
-	if trimmedPath != "" {
-		pathTokens = strings.Split(trimmedPath, "/")
-	}
-
-	return pathTokens
+// extractPathTokens extracts path tokens from a URL path after removing the prefix
+func extractPathTokens(path, prefix string) []string {
+	return GetStrTokens(path, prefix, "/")
 }
 
-func (s *Server) GetPathTokens(r *http.Request, ignorePrefix string) []string {
-	// Get the complete path (everything following /model)
-	fullPath := r.URL.Path
-	return s.GetStrTokens(fullPath, ignorePrefix)
-}
-
-// GetPostData extracts and validates JSON data from a POST request.
-// Returns the parsed data and an error if any part of the validation fails.
-func (s *Server) GetPostData(w http.ResponseWriter, r *http.Request) (any, error) {
-	// Check request method
-	if r.Method != http.MethodPost {
-		return nil, fmt.Errorf("method %s not allowed, only POST is supported", r.Method)
-	}
-
-	// Check content type
+// readJSONBody reads and parses the JSON request body
+func readJSONBody(w http.ResponseWriter, r *http.Request) (any, error) {
 	contentType := r.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "application/json") {
 		return nil, fmt.Errorf("unsupported Content-Type: %s, only application/json is supported", contentType)
@@ -57,185 +36,182 @@ func (s *Server) GetPostData(w http.ResponseWriter, r *http.Request) (any, error
 	// Limit request body size to 1MB to prevent DOS attacks
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
-	// Parse the JSON data
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading request body: %w", err)
+	}
+
 	var jsonData any
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&jsonData); err != nil {
+	if err := json.Unmarshal(body, &jsonData); err != nil {
 		return nil, fmt.Errorf("invalid JSON format: %w", err)
 	}
 
-	// Validate data type
-	switch v := jsonData.(type) {
-	case string, float64, bool, nil, map[string]any, []any:
-		// These types are allowed
-		return jsonData, nil
+	return jsonData, nil
+}
+
+// sendJSONResponse sends a JSON response to the client
+func sendJSONResponse(w http.ResponseWriter, data any, statusCode int) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+
+	return json.NewEncoder(w).Encode(data)
+}
+
+// sendErrorResponse sends an error response with the appropriate status code
+func sendErrorResponse(w http.ResponseWriter, err error) {
+	statusCode := http.StatusInternalServerError
+
+	// Determine appropriate status code based on error message
+	errMsg := err.Error()
+	switch {
+	case strings.Contains(errMsg, "not found"):
+		statusCode = http.StatusNotFound
+	case strings.Contains(errMsg, "method"):
+		statusCode = http.StatusMethodNotAllowed
+	case strings.Contains(errMsg, "Content-Type"):
+		statusCode = http.StatusUnsupportedMediaType
+	case strings.Contains(errMsg, "does not point to") ||
+		strings.Contains(errMsg, "invalid JSON"):
+		statusCode = http.StatusBadRequest
+	}
+
+	http.Error(w, errMsg, statusCode)
+}
+
+// ModelHandler handles requests to the model endpoint
+func (s *Server) ModelHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("%s request to %s", r.Method, r.URL.Path)
+
+	pathTokens := extractPathTokens(r.URL.Path, "/model")
+
+	switch r.Method {
+	case http.MethodGet:
+		result, err := s.dataModel.GetModelData(pathTokens)
+		if err != nil {
+			sendErrorResponse(w, fmt.Errorf("error getting data: %w", err))
+			return
+		}
+
+		if err := sendJSONResponse(w, result, http.StatusOK); err != nil {
+			sendErrorResponse(w, fmt.Errorf("error encoding response: %w", err))
+		}
+
+	case http.MethodPost:
+		jsonData, err := readJSONBody(w, r)
+		if err != nil {
+			sendErrorResponse(w, err)
+			return
+		}
+
+		if err := s.dataModel.UpdateModelData(pathTokens, jsonData); err != nil {
+			sendErrorResponse(w, err)
+			return
+		}
+
+		sendJSONResponse(w, map[string]string{"status": "success"}, http.StatusOK)
+
 	default:
-		return nil, fmt.Errorf("unsupported JSON data type: %T", v)
+		sendErrorResponse(w, fmt.Errorf("method %s not supported", r.Method))
 	}
 }
 
-// HandlePost processes POST requests and updates the data model.
-// Returns an error if the operation fails.
-func (s *Server) HandleModelPost(w http.ResponseWriter, r *http.Request) error {
-	pathTokens := s.GetPathTokens(r, "/model")
-	jsonData, err := s.GetPostData(w, r)
-	if err != nil {
-		return err
+// NodeHandler handles requests to the node endpoint
+func (s *Server) NodeHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("%s request to %s", r.Method, r.URL.Path)
+
+	if r.Method != http.MethodPost {
+		sendErrorResponse(w, fmt.Errorf("method %s not supported", r.Method))
+		return
 	}
 
-	log.Printf("Handling POST to path: %v with data: %v", pathTokens, jsonData)
-	err = s.dataModel.UpdateModelData(pathTokens, jsonData)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *Server) HandleNodePost(w http.ResponseWriter, r *http.Request) error {
-	pathTokens := s.GetPathTokens(r, "/node")
+	pathTokens := extractPathTokens(r.URL.Path, "/node")
 	if len(pathTokens) != 1 {
-		return fmt.Errorf("expected only one item in the path, got %T", len(pathTokens))
+		sendErrorResponse(w, fmt.Errorf("expected only one item in the path, got %d", len(pathTokens)))
+		return
 	}
 
 	normalizedPath := strings.Join(pathTokens, "/")
 	paths, exists := s.dataModel.Nodes[normalizedPath]
 	if !exists {
-		return fmt.Errorf("no match in the nodes list for the path \"%s\"", normalizedPath)
+		sendErrorResponse(w, fmt.Errorf("no match in the nodes list for the path \"%s\"", normalizedPath))
+		return
 	}
 
-	jsonData, err := s.GetPostData(w, r)
+	jsonData, err := readJSONBody(w, r)
 	if err != nil {
-		return err
+		sendErrorResponse(w, err)
+		return
 	}
 
-	for _, value := range paths {
-		curTokens := s.GetStrTokens(value, "/")
-		s.dataModel.UpdateModelData(curTokens, jsonData)
+	// Update all paths associated with this node
+	for _, path := range paths {
+		curTokens := GetStrTokens(path, "/", "/")
+		if err := s.dataModel.UpdateModelData(curTokens, jsonData); err != nil {
+			sendErrorResponse(w, err)
+			return
+		}
 	}
 
-	return nil
+	sendJSONResponse(w, map[string]string{"status": "success"}, http.StatusOK)
 }
 
-// HandleGet processes GET requests and returns the requested data.
-func (s *Server) HandleModelGet(w http.ResponseWriter, r *http.Request) error {
-	pathTokens := s.GetPathTokens(r, "/model")
-	result, err := s.dataModel.GetModelData(pathTokens)
-	if err != nil {
-		return fmt.Errorf("error getting data: %w", err)
-	}
-
-	jsonResponse, err := json.Marshal(result)
-	if err != nil {
-		return fmt.Errorf("error marshaling response: %w", err)
-	}
-
-	// Set content type and write response
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(jsonResponse)
-	return nil
-}
-
-// ModelHandler handles requests to the model endpoint
-func (s *Server) ModelHandler(w http.ResponseWriter, r *http.Request) {
-	var err error
-
-	// Log the request
+// ConfigHandler handles requests to the config endpoint
+func (s *Server) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("%s request to %s", r.Method, r.URL.Path)
 
 	switch r.Method {
 	case http.MethodGet:
-		err = s.HandleModelGet(w, r)
-		if err != nil {
-			// Determine appropriate status code based on error
-			statusCode := http.StatusInternalServerError
-			if strings.Contains(err.Error(), "not found") {
-				statusCode = http.StatusNotFound
-			} else if strings.Contains(err.Error(), "does not point to") {
-				statusCode = http.StatusBadRequest
-			}
-			http.Error(w, err.Error(), statusCode)
-			return
+		if err := sendJSONResponse(w, s.dataModel, http.StatusOK); err != nil {
+			sendErrorResponse(w, fmt.Errorf("error encoding data model: %w", err))
 		}
 
 	case http.MethodPost:
-		err = s.HandleModelPost(w, r)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			// Determine appropriate status code based on error
-			statusCode := http.StatusBadRequest
-			if strings.Contains(err.Error(), "method") {
-				statusCode = http.StatusMethodNotAllowed
-			} else if strings.Contains(err.Error(), "Content-Type") {
-				statusCode = http.StatusUnsupportedMediaType
-			}
-			http.Error(w, err.Error(), statusCode)
+			sendErrorResponse(w, fmt.Errorf("error reading request body: %w", err))
+			return
+		}
+		defer r.Body.Close()
+
+		var dataModel DataModel
+		if err := json.Unmarshal(body, &dataModel); err != nil {
+			sendErrorResponse(w, fmt.Errorf("error parsing JSON into DataModel: %w", err))
 			return
 		}
 
-		// Send a success response for POST requests
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		responseData := map[string]string{"status": "success"}
-		json.NewEncoder(w).Encode(responseData)
-
-	default:
-		http.Error(w, fmt.Sprintf("Method %s not supported", r.Method), http.StatusMethodNotAllowed)
-	}
-}
-
-// ModelHandler handles requests to the node endpoint
-func (s *Server) NodeHandler(w http.ResponseWriter, r *http.Request) {
-	var err error
-
-	// Log the request
-	log.Printf("%s request to %s", r.Method, r.URL.Path)
-
-	switch r.Method {
-	case http.MethodPost:
-		err = s.HandleNodePost(w, r)
-		if err != nil {
-			// Determine appropriate status code based on error
-			statusCode := http.StatusBadRequest
-			if strings.Contains(err.Error(), "method") {
-				statusCode = http.StatusMethodNotAllowed
-			} else if strings.Contains(err.Error(), "Content-Type") {
-				statusCode = http.StatusUnsupportedMediaType
-			}
-			http.Error(w, err.Error(), statusCode)
+		if err := SaveDataModel(dataModel); err != nil {
+			sendErrorResponse(w, fmt.Errorf("error saving data model: %w", err))
 			return
 		}
 
-		// Send a success response for POST requests
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		responseData := map[string]string{"status": "success"}
-		json.NewEncoder(w).Encode(responseData)
+		// Update server's data model
+		s.dataModel = dataModel
+
+		sendJSONResponse(w, map[string]string{"status": "success"}, http.StatusOK)
 
 	default:
-		http.Error(w, fmt.Sprintf("Method %s not supported", r.Method), http.StatusMethodNotAllowed)
+		sendErrorResponse(w, fmt.Errorf("method %s not supported", r.Method))
 	}
 }
 
 func main() {
-	dataModel, err := InitDataModel()
+	dataModel, err := LoadDataModel()
 	if err != nil {
-		log.Fatal("Failed to initialize data model:", err)
-		return
+		log.Fatalf("Failed to initialize data model: %v", err)
 	}
 
-	// Create a new server with the data model
 	server := CreateServer(dataModel)
 
-	// Register the handler using a method closure
 	http.HandleFunc("/model", server.ModelHandler)
 	http.HandleFunc("/model/", server.ModelHandler)
 	http.HandleFunc("/node", server.NodeHandler)
 	http.HandleFunc("/node/", server.NodeHandler)
+	http.HandleFunc("/config", server.ConfigHandler)
+	http.HandleFunc("/config/", server.ConfigHandler)
 
-	// Start the server on port 8080
-	fmt.Println("Server starting on port 8080...")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		log.Fatal("Server error:", err)
-		return
+	port := ":8080"
+	fmt.Printf("Server starting on port %s...\n", port[1:])
+	if err := http.ListenAndServe(port, nil); err != nil {
+		log.Fatalf("Server error: %v", err)
 	}
 }
