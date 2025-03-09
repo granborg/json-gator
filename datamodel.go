@@ -29,9 +29,20 @@ func NewDataModel() *DataModel {
 	}
 }
 
-// ClearCache clears the transformation cache, forcing recalculation of all transformations
-func (d *DataModel) ClearCache() {
-	d.transformationCache = make(map[string]any)
+// ClearCache clears the transformation cache for a specific path if provided,
+// or the entire cache if no path is provided
+func (d *DataModel) ClearCache(paths ...string) {
+	if len(paths) == 0 {
+		// Clear entire cache if no paths are provided
+		for k := range d.transformationCache {
+			delete(d.transformationCache, k)
+		}
+	} else {
+		// Clear only the specified paths
+		for _, path := range paths {
+			delete(d.transformationCache, path)
+		}
+	}
 }
 
 // applyTransformation applies a transformation to the given path and returns the result
@@ -56,11 +67,7 @@ func (d *DataModel) applyTransformation(path string) (any, error) {
 	transformationAny, exists := d.Transformations[path]
 	if !exists {
 		// If no transformation exists, just return the raw value from the model
-		value, err := GetMapData(&d.Model, pathTokens)
-		if err != nil {
-			return nil, err
-		}
-		return value, nil
+		return GetMapData(&d.Model, pathTokens)
 	}
 
 	// Cast the transformation to the expected format
@@ -181,9 +188,7 @@ func (d *DataModel) applyNestedTransformations(path string, rawData any) (any, e
 			}
 
 			// Update the result with the transformed value
-			subPath := strings.TrimLeft(transformPath, path)
-			subPath = strings.Trim(subPath, "/")
-			subPathTokens := strings.Split(subPath, "/")
+			subPathTokens := GetStrTokens(transformPath, path, "/")
 			SetMapData(&resultCopy, subPathTokens, transformedValue)
 		}
 	}
@@ -204,6 +209,7 @@ func (d *DataModel) GetModelData(pathTokens []string, raw bool) (any, error) {
 	}
 
 	path := strings.Join(pathTokens, "/")
+
 	transformedData, err := d.applyNestedTransformations(path, rawData)
 	if err != nil {
 		return nil, err
@@ -215,6 +221,6 @@ func (d *DataModel) GetModelData(pathTokens []string, raw bool) (any, error) {
 // SetModelData sets data in the model without applying transformations
 func (d *DataModel) SetModelData(pathTokens []string, value any) error {
 	// Clear the transformation cache since model data is changing
-	d.ClearCache()
+	d.ClearCache(strings.Join(pathTokens, "/"))
 	return SetMapData(&d.Model, pathTokens, value)
 }

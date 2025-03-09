@@ -2,18 +2,28 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"strings"
 )
 
 func GetStrTokens(path string, ignorePrefix string, sep string) []string {
-	trimmedPath := strings.TrimLeft(path, ignorePrefix)
-	// Trim both leading and trailing slashes from the suffix
-	trimmedPath = strings.Trim(trimmedPath, sep)
+	var trimmedPath string
+
+	// Check if the path starts with the prefix
+	if strings.HasPrefix(path, ignorePrefix) {
+		// Remove the prefix as a whole unit
+		trimmedPath = path[len(ignorePrefix):]
+	} else {
+		trimmedPath = path
+	}
+
+	// Trim leading separator if present
+	trimmedPath = strings.TrimPrefix(trimmedPath, sep)
 
 	// Split the path suffix into tokens
 	pathTokens := []string{}
 	if trimmedPath != "" {
-		pathTokens = strings.Split(trimmedPath, "/")
+		pathTokens = strings.Split(trimmedPath, sep)
 	}
 
 	return pathTokens
@@ -123,6 +133,8 @@ func SetMapData(modelMap *map[string]any, pathTokens []string, value any) error 
 	// Set the final value
 	lastToken := pathTokens[len(pathTokens)-1]
 	current[lastToken] = value
+
+	log.Printf("Setting %s to %s", lastToken, value)
 
 	return nil
 }

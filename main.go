@@ -86,7 +86,7 @@ func (s *Server) ModelHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		result, err := s.dataModel.GetModelData(pathTokens, false)
+		result, err := s.dataModel.GetModelData(pathTokens, r.URL.Query().Get("raw") == "y")
 		if err != nil {
 			sendErrorResponse(w, fmt.Errorf("error getting data: %w", err))
 			return
