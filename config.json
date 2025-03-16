@@ -66,7 +66,7 @@
         "caCert": "ca.pem",
         "clientCert": "cert.pem",
         "clientKey": "cert.key",
-        "caServerHostname": "",
+        "caServerHostname": "example.com",
         "paths": {
             "sales": [
                 {
@@ -87,12 +87,6 @@
                     "topic": "org/employees",
                     "qos": 0,
                     "retain": false,
-                    "publishType": 2
-                },
-                {
-                    "topic": "org/goblin",
-                    "qos": 2,
-                    "retain": true,
                     "publishType": 2
                 }
             ]

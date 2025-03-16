@@ -182,3 +182,51 @@ RESPONSE
     "west": 10
 }
 ```
+## MQTT
+
+json-gator also supports sending and receiving messages over MQTT.
+
+The MQTT configuration contains connection parameters and an object containing the path mappings. The keys in this object represent the JSON paths in the model. The value is a list of objects that details how that path interacts with the MQTT broker.
+
+topic - The topic to publish or subscribe to.
+
+qos - MQTT QoS level: AtMostOnce (0), AtLeastOnce (1), ExactlyOnce (2).
+
+retain - MQTT retain flag. Indicates whether the broker should make the value persistent.
+
+publishType - Pub (0), Sub (1), PubSub (2). If Pub, json-gator will publish to the topic whenever the path changes. If Sub, the path will be changed whenever the topic changes to the value that was set over the MQTT connection. If PubSub, both behaviors happen at the same time.
+
+```
+"mqtt": {
+        "broker": "mqtt://localhost:1883",
+        "secure": false,
+        "caCert": "ca.pem",
+        "clientCert": "cert.pem",
+        "clientKey": "cert.key",
+        "caServerHostname": "example.com",
+        "paths": {
+            "sales": [
+                {
+                    "topic": "org/sales",
+                    "qos": 0,
+                    "retain": false,
+                    "publishType": 0
+                }
+            ],
+            "costs":  [
+                {
+                    "topic": "org/costs",
+                    "publishType": 1
+                }
+            ],
+            "employees": [
+                {
+                    "topic": "org/employees",
+                    "qos": 0,
+                    "retain": false,
+                    "publishType": 2
+                }
+            ]
+        }
+    }
+```
