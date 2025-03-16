@@ -2,6 +2,8 @@
 
 Aggregate and condition data from many different sources into customizable models on a single JSON web server. 
 
+Edit the JSON via HTTP POST or MQTT subscription, and/or publish to MQTT when the JSON data changes.
+
 ## Use Cases
 
 1. Gathering data from many different sources to create a dashboard for monitoring operations.
@@ -10,7 +12,9 @@ Aggregate and condition data from many different sources into customizable model
 
 3. Conditioning data to be fed into n8n or nodeRED via a web request for machine learning tasks, triggering events, sending emails, time series logging, etc.
 
-4. Quickly creating and editing mock backend routes for simplified frontend development.
+4. Seamlessly passing data back and forth between MQTT and HTTP, for ERP/ISA-95 applications, SCADA systems and more.
+
+5. Quickly creating and editing mock backend routes for simplified frontend development.
 
 ## Creating a Model
 
