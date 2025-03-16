@@ -221,7 +221,7 @@ func (d *DataModel) GetModelData(pathTokens []string, raw bool) (any, error) {
 }
 
 // SetModelData sets data in the model without applying transformations
-func (d *DataModel) SetModelData(pathTokens []string, value any) error {
+func (d *DataModel) SetModelData(pathTokens []string, value any, fromMqtt bool) error {
 	// Clear the transformation cache since model data is changing
 	d.ClearCache(strings.Join(pathTokens, "/"))
 	err := SetMapData(&d.Model, pathTokens, value)
@@ -229,7 +229,7 @@ func (d *DataModel) SetModelData(pathTokens []string, value any) error {
 		return err
 	}
 
-	if d.Mqtt != nil {
+	if !fromMqtt && d.Mqtt != nil {
 		err = d.Mqtt.PublishMessage(pathTokens, d.GetModelData)
 		if err != nil {
 			return err

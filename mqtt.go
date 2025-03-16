@@ -51,9 +51,10 @@ type MqttClient struct {
 	CaServerHostname string                `json:"caServerHostname"`
 	Paths            map[string][]MqttPath `json:"paths"`
 	Client           mqtt.Client
+	callbacks        map[string]mqtt.MessageHandler
 }
 
-func (m *MqttClient) Connect(callback mqtt.MessageHandler) {
+func (m *MqttClient) Connect() {
 	// Create MQTT client options
 	opts := mqtt.NewClientOptions()
 
@@ -99,39 +100,67 @@ func (m *MqttClient) Connect(callback mqtt.MessageHandler) {
 	if token := m.Client.Connect(); token.Wait() && token.Error() != nil {
 		log.Fatalf("Error connecting to MQTT broker: %v", token.Error())
 	}
+}
 
-	for _, val := range m.Paths {
-		for _, path := range val {
-			topic := path.Topic
-			token := m.Client.Subscribe(topic, byte(path.Qos), callback)
+func (m *MqttClient) SetupSubscriptions(setModelDataCallback func([]string, any, bool) error) {
+	// Initialize the callbacks map if it doesn't exist
+	if m.callbacks == nil {
+		m.callbacks = make(map[string]mqtt.MessageHandler)
+	}
+
+	for path, val := range m.Paths {
+		for _, mqttPath := range val {
+			if mqttPath.PublishType != Sub && mqttPath.PublishType != PubSub {
+				continue // Skip topics we're not subscribing to
+			}
+
+			topic := mqttPath.Topic
+			pathTokens := strings.Split(path, "/")
+
+			// Create a unique key for this callback
+			callbackKey := fmt.Sprintf("%s-%s", topic, path)
+
+			// Store the callback in the map to prevent it from being garbage collected
+			m.callbacks[callbackKey] = func(client mqtt.Client, msg mqtt.Message) {
+				log.Printf("Received message on topic: %s with payload: %s", msg.Topic(), string(msg.Payload()))
+
+				// Create a local copy of pathTokens to ensure it's not modified
+				localPathTokens := make([]string, len(pathTokens))
+				copy(localPathTokens, pathTokens)
+
+				// Unmarshal the message payload
+				var data any
+				err := json.Unmarshal(msg.Payload(), &data)
+				if err != nil {
+					log.Printf("Error unmarshaling message from topic %s: %v", msg.Topic(), err)
+					// Try to use the raw payload as a string if JSON unmarshaling fails
+					data = string(msg.Payload())
+				}
+
+				// Call the setModelDataCallback with path segments and unmarshaled data
+				err = setModelDataCallback(localPathTokens, data, true)
+				if err != nil {
+					log.Printf("Error in setModelDataCallback for topic %s: %v", msg.Topic(), err)
+				} else {
+					log.Printf("Successfully processed message for path \"%s\"", strings.Join(localPathTokens, "/"))
+				}
+			}
+
+			// Use the stored callback for subscription
+			token := m.Client.Subscribe(topic, byte(mqttPath.Qos), m.callbacks[callbackKey])
 			token.Wait()
 
 			if token.Error() != nil {
 				log.Printf("Error subscribing to topic %s: %v", topic, token.Error())
-				m.Client.Disconnect(250)
+				// Don't disconnect immediately, continue with other subscriptions
 				continue
 			}
-			log.Printf("Subscribed to topic: %s", topic)
+			log.Printf("Path \"%s\" is subscribed to topic: \"%s\"", path, topic)
 		}
 	}
 }
 
 func (m *MqttClient) Disconnect() {
-	// Unsubscribe and disconnect gracefully
-	log.Println("Unsubscribing and disconnecting...")
-	for _, mqttPaths := range m.Paths {
-		for _, mqttPath := range mqttPaths {
-			topic := mqttPath.Topic
-			token := m.Client.Unsubscribe(topic)
-			token.Wait()
-			if token.Error() != nil {
-				log.Printf("Error unsubscribing to topic %s: %v", topic, token.Error())
-				continue
-			}
-			log.Printf("Unsubscribed from topic: %s", topic)
-		}
-	}
-
 	m.Client.Disconnect(250)
 	log.Println("MQTT client disconnected")
 }

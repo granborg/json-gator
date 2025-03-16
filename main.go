@@ -103,7 +103,7 @@ func (s *Server) ModelHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := s.dataModel.SetModelData(pathTokens, jsonData); err != nil {
+		if err := s.dataModel.SetModelData(pathTokens, jsonData, false); err != nil {
 			sendErrorResponse(w, err)
 			return
 		}
@@ -146,7 +146,7 @@ func (s *Server) NodeHandler(w http.ResponseWriter, r *http.Request) {
 	// Update all paths associated with this node
 	for _, path := range paths {
 		curTokens := GetStrTokens(path, "/", "/")
-		if err := s.dataModel.SetModelData(curTokens, jsonData); err != nil {
+		if err := s.dataModel.SetModelData(curTokens, jsonData, false); err != nil {
 			sendErrorResponse(w, err)
 			return
 		}

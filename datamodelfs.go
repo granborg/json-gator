@@ -40,7 +40,8 @@ func LoadDataModel() (DataModel, error) {
 	}
 
 	if dataModel.Mqtt != nil {
-		dataModel.Mqtt.Connect(nil)
+		dataModel.Mqtt.Connect()
+		dataModel.Mqtt.SetupSubscriptions(dataModel.SetModelData)
 	}
 
 	return dataModel, err

@@ -73,13 +73,13 @@
                     "topic": "org/sales",
                     "qos": 0,
                     "retain": false,
-                    "type": "pub"
+                    "publishType": 0
                 }
             ],
             "costs":  [
                 {
                     "topic": "org/costs",
-                    "type": "sub"
+                    "publishType": 1
                 }
             ],
             "employees": [
@@ -87,7 +87,13 @@
                     "topic": "org/employees",
                     "qos": 0,
                     "retain": false,
-                    "type": "pubSub"
+                    "publishType": 2
+                },
+                {
+                    "topic": "org/goblin",
+                    "qos": 2,
+                    "retain": true,
+                    "publishType": 2
                 }
             ]
         }
