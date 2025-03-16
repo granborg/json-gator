@@ -12,6 +12,7 @@ type DataModel struct {
 	Model           map[string]any      `json:"model"`           // Contains the current values for all topics
 	Transformations map[string]any      `json:"transformations"` // key: topic, value: transformation
 	Nodes           map[string][]string `json:"nodes"`           // key: datum ID, value: all associated topics
+	Mqtt            *MqttClient         `json:"mqtt"`            // MQTT client configuration
 
 	// Cache to prevent infinite recursion and improve performance
 	transformationCache map[string]any
@@ -24,6 +25,7 @@ func NewDataModel() *DataModel {
 		Model:               make(map[string]any),
 		Transformations:     make(map[string]any),
 		Nodes:               make(map[string][]string),
+		Mqtt:                nil,
 		transformationCache: make(map[string]any),
 		processingPaths:     make(map[string]bool),
 	}
@@ -222,5 +224,16 @@ func (d *DataModel) GetModelData(pathTokens []string, raw bool) (any, error) {
 func (d *DataModel) SetModelData(pathTokens []string, value any) error {
 	// Clear the transformation cache since model data is changing
 	d.ClearCache(strings.Join(pathTokens, "/"))
-	return SetMapData(&d.Model, pathTokens, value)
+	err := SetMapData(&d.Model, pathTokens, value)
+	if err != nil {
+		return err
+	}
+
+	if d.Mqtt != nil {
+		err = d.Mqtt.PublishMessage(pathTokens, d.GetModelData)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

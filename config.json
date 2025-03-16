@@ -59,5 +59,37 @@
             "sales/east",
             "sales/west"
         ]
+    },
+    "mqtt": {
+        "broker": "mqtt://localhost:1883",
+        "secure": false,
+        "caCert": "ca.pem",
+        "clientCert": "cert.pem",
+        "clientKey": "cert.key",
+        "caServerHostname": "",
+        "paths": {
+            "sales": [
+                {
+                    "topic": "org/sales",
+                    "qos": 0,
+                    "retain": false,
+                    "type": "pub"
+                }
+            ],
+            "costs":  [
+                {
+                    "topic": "org/costs",
+                    "type": "sub"
+                }
+            ],
+            "employees": [
+                {
+                    "topic": "org/employees",
+                    "qos": 0,
+                    "retain": false,
+                    "type": "pubSub"
+                }
+            ]
+        }
     }
 }

@@ -34,7 +34,16 @@ func LoadDataModel() (DataModel, error) {
 		return initDataModelFromFile(path)
 	}
 
-	return initDataModelFromFile("config.json")
+	dataModel, err := initDataModelFromFile("config.json")
+	if err != nil {
+		return dataModel, err
+	}
+
+	if dataModel.Mqtt != nil {
+		dataModel.Mqtt.Connect(nil)
+	}
+
+	return dataModel, err
 }
 
 // SaveDataModel saves the model to the file path CONFIG_FILE_PATH, or config.json if empty.
