@@ -12,7 +12,7 @@ Edit the JSON via HTTP POST or MQTT subscription, and/or publish to MQTT when th
 
 3. Conditioning data to be fed into n8n or nodeRED via a web request for machine learning tasks, triggering events, sending emails, time series logging, etc.
 
-4. Seamlessly passing data back and forth between MQTT and HTTP, for ERP/ISA-95 applications, SCADA systems and IoT/IIoT solutions.
+4. HTTP to MQTT bridge - Seamlessly passing data back and forth between MQTT and HTTP, for ERP/ISA-95 applications, SCADA systems and IoT/IIoT solutions.
 
 5. Quickly creating and editing mock backend routes for simplified frontend development.
 
